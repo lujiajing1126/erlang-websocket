@@ -1,0 +1,1 @@
+-record(user,{nickname,uuid,password,userid}).

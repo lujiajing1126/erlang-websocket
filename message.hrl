@@ -1,0 +1,1 @@
+-record(message,{type=single,messagetype=common,status=undo,content,from,to}).

@@ -83,3 +83,8 @@ handle_data(Data, Socket) ->
                 _Other -> handle_data(Next, Socket)
             end
     end.
+
+send_message(Str,Socket) ->
+    Bin = unicode:characters_to_binary(Str),
+    Frame = <<1:1, 0:3, 1:4, 0:1, (size(Bin)):7, Bin/binary>>,
+    gen_tcp:send(Socket, Frame).
