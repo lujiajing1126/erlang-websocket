@@ -8,6 +8,7 @@ start() ->
 
 loop() ->
 	receive
-		{From,{store,Key,Value}} ->
+		{From,{message,Str}} ->
+			io:format("receive message: ~p~n",[Str]),
 			loop()
 	end.

@@ -75,9 +75,7 @@ handle_data(Data, Socket) ->
         {incomplete, _, _} ->
             gen_tcp:close(Socket);
         Str ->
-            Bin = unicode:characters_to_binary(Str),
-            Frame = <<1:1, 0:3, 1:4, 0:1, (size(Bin)):7, Bin/binary>>,
-            gen_tcp:send(Socket, Frame),
+            userservice ! {self(),{message,Str}},
             case size(Next) of
                 0 -> loop(Socket);
                 _Other -> handle_data(Next, Socket)
