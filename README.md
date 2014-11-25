@@ -1,5 +1,22 @@
 ## Erlang WebSocket
 
+### Install
+
+```
+erl -make
+```
+
+### Startup
+
+```
+cd dest
+erl
+1> userservice:start().
+true
+2> websocket:start().
+listen on 12345
+```
+
 ### Websocket Protocol
 
 HandShake:
