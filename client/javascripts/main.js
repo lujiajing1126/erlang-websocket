@@ -11,14 +11,19 @@ $(document).ready(function() {
             });
             ws.on("message",function(evt){
                 var data = evt.data;
-                $("#content").append("<p>" +  data + "</p>");
+                $("#content").append("<p> <暂时未实现> 对你说: " +  data + "</p>");
             });
             $("#smt").click(function() {
-                var val = $("#msg").val();
-                if ( val )
+                var val = $.trim($("#msg").val()),
+                    to_user = $.trim($("#to").val());
+                if ( val || to_user)
                 {
-                    ws.emit(val,$("#to").val());
+                    ws.emit(val,to_user);
+                } else {
+                    alert("消息不能为空");
                 }
+                $("#msg").val("");
+                $("#content").append("<p>你对 "+ to_user + "说: " +  data + "</p>");
                 return false;
             });
             $("#login").click(function(){

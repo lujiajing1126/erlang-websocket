@@ -10,7 +10,7 @@ start() ->
 loop() ->
 	receive
 		{From,Socket,{message,Str}} ->
-			io:format("receive message: ~p~n",[Str]),
+			io:format("step1 receive message: ~p~n",[Str]),
 			io:format("json message: ~p~n",[rfc4627:decode(Str)]),
 			case rfc4627:decode(Str) of
 				{ok,{_,[{"data",Data},{"type",<<"system">>}]},[]} ->
@@ -41,8 +41,10 @@ save(Username,Nickname,Password,Socket,Pid) ->
 
 find_user_and_send(User,Message) ->
 	io:format("send_to: ~p with message: ~p ~n",[User,Message]),
-	[ToUser] = ets:lookup(user,User),
-	sendMessage(ToUser#user.pid,Message).
+	case ets:lookup(user,User) of
+		[ToUser] ->
+			sendMessage(ToUser#user.pid,Message)
+	end.
 
 sendMessage(Pid,Str) ->
 	Pid ! {message,Str}.

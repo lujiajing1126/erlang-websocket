@@ -80,6 +80,7 @@ handle_data(Data, Socket) ->
         {incomplete, _, _} ->
             gen_tcp:close(Socket);
         Str ->
+            io:format("String is : ~p~n",[Str]),
             userservice ! {self(),Socket,{message,Str}},
             case size(Next) of
                 0 -> loop(Socket);
