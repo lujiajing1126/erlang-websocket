@@ -23,7 +23,7 @@ $(document).ready(function() {
                     alert("消息不能为空");
                 }
                 $("#msg").val("");
-                $("#content").append("<p>你对 "+ to_user + "说: " +  data + "</p>");
+                $("#content").append("<p>你对 "+ to_user + "说: " +  val + "</p>");
                 return false;
             });
             $("#login").click(function(){

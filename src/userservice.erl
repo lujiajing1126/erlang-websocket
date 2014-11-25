@@ -10,9 +10,8 @@ start() ->
 loop() ->
 	receive
 		{From,Socket,{message,Str}} ->
-			io:format("step1 receive message: ~p~n",[Str]),
-			io:format("json message: ~p~n",[rfc4627:decode(Str)]),
-			case rfc4627:decode(Str) of
+			io:format("step1 receive message: ~ts~n",[Str]),
+			case rfc4627:decode(xmerl_ucs:to_utf8(Str)) of
 				{ok,{_,[{"data",Data},{"type",<<"system">>}]},[]} ->
 					io:format("json message: ~p~n",[Data]),
 					{_,[{"username",UsernameBinary},{"password",PasswordBinary}]} = Data,

@@ -76,7 +76,7 @@ handle_data(Data, Socket) ->
     <<_Fin:1, _Rsv:3, _Opcode:4, _Mask:1, Len:7, Rest/binary>> = Data,
     <<Masking:4/binary, Payload:Len/binary, Next/binary>> = Rest,
     Line = unmask(Payload, Masking),
-    case unicode:characters_to_list(Line) of
+    case unicode:characters_to_list(Line,utf8) of
         {incomplete, _, _} ->
             gen_tcp:close(Socket);
         Str ->
