@@ -2,6 +2,8 @@
 -export([start/0]).
  
 -define(PORT, 12345).
+-define(END,1).
+-define(CONTINUE,0).
  
 start() ->
     {ok, Listen} = gen_tcp:listen(?PORT, [binary, {packet, 0}, {reuseaddr, true}, {active, true}]),
@@ -73,22 +75,75 @@ unmask(Payload, Masking = <<MA:8, MB:8, MC:8, MD:8>>, Acc) ->
     end.
  
 handle_data(Data, Socket) ->
-    <<_Fin:1, _Rsv:3, _Opcode:4, _Mask:1, Len:7, Rest/binary>> = Data,
-    <<Masking:4/binary, Payload:Len/binary, Next/binary>> = Rest,
-    Line = unmask(Payload, Masking),
-    case unicode:characters_to_binary(Line) of
-        {incomplete, _, _} ->
-            gen_tcp:close(Socket);
-        Str ->
-            io:format("ws line 83 String is : ~p~n",[Str]),
-            userservice ! {self(),Socket,{message,Str}},
-            case size(Next) of
-                0 -> loop(Socket);
-                _Other -> handle_data(Next, Socket)
-            end
+    <<Eof:1, _Rsv:3, _Opcode:4, Mask:1, Len:7, Rest/binary>> = Data,
+    io:format("_FIN: ~p~n",[Eof]),
+    io:format("_LEN: ~p~n",[Len]),
+    io:format("_MASK: ~p~n",[Mask]),
+    case Eof of
+        ?END ->
+            if
+                Len < 126 ->
+                    <<Masking:4/binary, Payload:Len/binary, Next/binary>> = Rest,
+                    Line = unmask(Payload, Masking),
+                    case unicode:characters_to_binary(Line) of
+                        {incomplete, _, _} ->
+                            gen_tcp:close(Socket);
+                        Str ->
+                            io:format("ws line 83 String is : ~p~n",[Str]),
+                            userservice ! {self(),Socket,{message,Str}},
+                            case size(Next) of
+                                0 -> loop(Socket);
+                                _Other -> handle_data(Next, Socket)
+                            end
+                    end;
+                Len == 126 ->
+                    <<ExtLen:16,ExtRest/binary>> = Rest,
+                    <<Masking:4/binary, Payload:ExtLen/binary, Next/binary>> = ExtRest,
+                    io:format("ExtLen: ~p~n",[ExtLen]),
+                    Line = unmask(Payload, Masking),
+                    case unicode:characters_to_binary(Line) of
+                        {incomplete, _, _} ->
+                            gen_tcp:close(Socket);
+                        Str ->
+                            io:format("ws line 83 String is : ~p~n",[Str]),
+                            userservice ! {self(),Socket,{message,Str}},
+                            case size(Next) of
+                                0 -> loop(Socket);
+                                _Other -> handle_data(Next, Socket)
+                            end
+                    end;
+                Len == 127 ->
+                    <<ExtLen:64,ExtRest/binary>> = Rest,
+                    <<Masking:4/binary, Payload:ExtLen/binary, Next/binary>> = ExtRest,
+                    io:format("ExtLen: ~p~n",[ExtLen]),
+                    Line = unmask(Payload, Masking),
+                    case unicode:characters_to_binary(Line) of
+                        {incomplete, _, _} ->
+                            gen_tcp:close(Socket);
+                        Str ->
+                            io:format("ws line 83 String is : ~p~n",[Str]),
+                            userservice ! {self(),Socket,{message,Str}},
+                            case size(Next) of
+                                0 -> loop(Socket);
+                                _Other -> handle_data(Next, Socket)
+                            end
+                    end
+            end;
+        ?CONTINUE ->
+            io:format("maycontinue")
     end.
 
 send_message(Str,Socket) ->
-    io:format("Send Message to Client~n",[]),
-    Frame = <<1:1, 0:3, 1:4, 0:1, (size(Str)):7, Str/binary>>,
-    gen_tcp:send(Socket, Frame).
+    io:format("Send Message to Client: ~p,sizeOf: ~p~n",[Str,size(Str)]),
+    if
+        size(Str) < 126 ->
+            Frame = <<1:1, 0:3, 1:4, 0:1, (size(Str)):7, Str/binary>>,
+            gen_tcp:send(Socket, Frame);
+        size(Str) < 65535 andalso size(Str) >= 126 ->
+            Frame = <<1:1, 0:3, 1:4, 0:1,1:6,0:1, (size(Str)):16, Str/binary>>,
+            io:format("yes~n"),
+            gen_tcp:send(Socket, Frame);
+        size(Str) >= 65535 ->
+            Frame = <<1:1, 0:3, 1:4, 0:1, 1:7, (size(Str)):64, Str/binary>>,
+            gen_tcp:send(Socket, Frame)
+    end.
