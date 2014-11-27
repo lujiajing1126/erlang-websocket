@@ -1,7 +1,7 @@
 $(document).ready(function() {
     try {
         whosvIO.ready(function(socket){
-            var ws = new socket("ws://192.168.2.123:12345");
+            var ws = new socket("ws://localhost:12345");
             function handleFile(file,to) {
                 console.log("handleFile");
                 var reader = new FileReader(),

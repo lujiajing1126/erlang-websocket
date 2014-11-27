@@ -1,4 +1,5 @@
 -module(websocket).
+-author('lujiajing1126@gmail.com').
 -export([start/0]).
  
 -define(PORT, 12345).
@@ -73,7 +74,7 @@ unmask(Payload, Masking = <<MA:8, MB:8, MC:8, MD:8>>, Acc) ->
             Acc1 = <<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C), (MD bxor D)>>,
             unmask(Rest, Masking, Acc1)
     end.
- 
+
 handle_data(Data, Socket) ->
     <<Eof:1, _Rsv:3, _Opcode:4, Mask:1, Len:7, Rest/binary>> = Data,
     io:format("_FIN: ~p~n",[Eof]),
@@ -133,17 +134,14 @@ handle_data(Data, Socket) ->
             io:format("maycontinue")
     end.
 
+payload_length(N) ->
+    case N of
+        N when N =< 125 -> << N >>;
+        N when N =< 16#ffff -> << 126, N:16 >>;
+        N when N =< 16#7fffffffffffffff -> << 127, N:64 >>
+    end.
+
 send_message(Str,Socket) ->
     io:format("Send Message to Client: ~p,sizeOf: ~p~n",[Str,size(Str)]),
-    if
-        size(Str) < 126 ->
-            Frame = <<1:1, 0:3, 1:4, 0:1, (size(Str)):7, Str/binary>>,
-            gen_tcp:send(Socket, Frame);
-        size(Str) < 65535 andalso size(Str) >= 126 ->
-            Frame = <<1:1, 0:3, 1:4, 0:1,1:6,0:1, (size(Str)):16, Str/binary>>,
-            io:format("yes~n"),
-            gen_tcp:send(Socket, Frame);
-        size(Str) >= 65535 ->
-            Frame = <<1:1, 0:3, 1:4, 0:1, 1:7, (size(Str)):64, Str/binary>>,
-            gen_tcp:send(Socket, Frame)
-    end.
+    Frame = <<1:1, 0:3, 1:4, (payload_length(size(Str)))/binary, Str/binary>>,
+    gen_tcp:send(Socket, Frame).
