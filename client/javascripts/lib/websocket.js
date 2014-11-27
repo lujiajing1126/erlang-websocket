@@ -76,13 +76,14 @@
     socket.prototype.on = function(event,callback) {
         this.EventManager.addListener(event,callback);
     }
-    socket.prototype.emit = function(message, to) {
+    socket.prototype.emit = function(message,type,to) {
         this.send({
             data: {
                 message: message
             },
             to: to,
-            type: "message"
+            type: "message",
+            content_type: type
         });
     }
     socket.prototype.login = function(username, password) {

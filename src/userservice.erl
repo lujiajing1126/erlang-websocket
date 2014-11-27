@@ -10,8 +10,7 @@ start() ->
 loop() ->
 	receive
 		{From,Socket,{message,Str}} ->
-			io:format("step1 receive message: ~ts~n",[Str]),
-			case rfc4627:decode(xmerl_ucs:to_utf8(Str)) of
+			case rfc4627:decode(Str) of
 				{ok,{_,[{"data",Data},{"type",<<"system">>}]},[]} ->
 					io:format("json message: ~p~n",[Data]),
 					{_,[{"username",UsernameBinary},{"password",PasswordBinary}]} = Data,
@@ -22,8 +21,12 @@ loop() ->
 					io:format("json message: ~p~n",[Data]),
 					sendMessage(From,Data),
 					loop();
-				{ok,{_,[{"data",{_,[{"message",MessageBinary}]}},{"to",ToUserBinary},{"type",<<"message">>}]},[]} ->
-					{User,Message} = {unicode:characters_to_list(ToUserBinary),unicode:characters_to_list(MessageBinary)},
+				{ok,{_,[{"data",{_,[{"message",MessageBinary}]}},{"to",ToUserBinary},{"type",<<"message">>},{"content_type",<<"txt">>}]},[]} ->
+					{User,Message} = {unicode:characters_to_list(ToUserBinary),MessageBinary},
+					find_user_and_send(User,Message),
+					loop();
+				{ok,{_,[{"data",{_,[{"message",MessageBinary}]}},{"to",ToUserBinary},{"type",<<"message">>},{"content_type",<<"img">>}]},[]} ->
+					{User,Message} = {unicode:characters_to_list(ToUserBinary),MessageBinary},
 					find_user_and_send(User,Message),
 					loop();
 				_Any ->
@@ -36,7 +39,7 @@ save(Username,Nickname,Password,Socket,Pid) ->
 	User = #user{nickname=Nickname,userid=Nickname,password=Password,socket=Socket,pid=Pid,uuid=Uuid},
 	ets:insert(user,User),
 	io:format("uuid: ~p~n",[Uuid]),
-	sendMessage(Pid,"Login Succeed").
+	sendMessage(Pid,unicode:characters_to_binary("Login Succeed")).
 
 find_user_and_send(User,Message) ->
 	io:format("send_to: ~p with message: ~p ~n",[User,Message]),

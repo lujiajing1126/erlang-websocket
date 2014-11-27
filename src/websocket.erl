@@ -76,11 +76,11 @@ handle_data(Data, Socket) ->
     <<_Fin:1, _Rsv:3, _Opcode:4, _Mask:1, Len:7, Rest/binary>> = Data,
     <<Masking:4/binary, Payload:Len/binary, Next/binary>> = Rest,
     Line = unmask(Payload, Masking),
-    case unicode:characters_to_list(Line,utf8) of
+    case unicode:characters_to_binary(Line) of
         {incomplete, _, _} ->
             gen_tcp:close(Socket);
         Str ->
-            io:format("String is : ~p~n",[Str]),
+            io:format("ws line 83 String is : ~p~n",[Str]),
             userservice ! {self(),Socket,{message,Str}},
             case size(Next) of
                 0 -> loop(Socket);
@@ -90,6 +90,5 @@ handle_data(Data, Socket) ->
 
 send_message(Str,Socket) ->
     io:format("Send Message to Client~n",[]),
-    Bin = unicode:characters_to_binary(Str),
-    Frame = <<1:1, 0:3, 1:4, 0:1, (size(Bin)):7, Bin/binary>>,
+    Frame = <<1:1, 0:3, 1:4, 0:1, (size(Str)):7, Str/binary>>,
     gen_tcp:send(Socket, Frame).
