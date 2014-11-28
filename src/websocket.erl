@@ -7,12 +7,12 @@
 -define(CONTINUE,0).
  
 start() ->
-    {ok, Listen} = gen_tcp:listen(?PORT, [binary, {packet, 0}, {reuseaddr, true}, {active, true}]),
+    {ok, Listen} = gen_tcp:listen(?PORT, [binary, {packet, 0}, {reuseaddr, true}, {active, once}]),
     io:format("listen on ~p~n", [?PORT]),
     par_connect(Listen).
  
 par_connect(Listen) ->
-    {ok, Socket} = gen_tcp:accept(Listen),
+    {ok,Socket} = gen_tcp:accept(Listen),
     spawn(fun() -> par_connect(Listen) end),
     wait(Socket).
  
@@ -39,6 +39,7 @@ wait(Socket) ->
     end.
  
 loop(Socket) ->
+    ok = inet:setopts(Socket, [binary,{packet, 0}, {active, once}]),
     receive
         {tcp, Socket, Data} ->
             handle_data(Data, Socket);
@@ -53,85 +54,136 @@ loop(Socket) ->
             io:format("Received:~p~n", [Any]),
             loop(Socket)
     end.
- 
-unmask(Payload, Masking) ->
-    unmask(Payload, Masking, <<>>).
- 
-unmask(Payload, Masking = <<MA:8, MB:8, MC:8, MD:8>>, Acc) ->
-    case size(Payload) of
-        0 -> Acc;
-        1 ->
-            <<A>> = Payload,
-            <<Acc/binary, (MA bxor A)>>;
-        2 ->
-            <<A:8, B:8>> = Payload,
-            <<Acc/binary, (MA bxor A), (MB bxor B)>>;
-        3 ->
-            <<A:8, B:8, C:8>> = Payload,
-            <<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C)>>;
-        _Other ->
-            <<A:8, B:8, C:8, D:8, Rest/binary>> = Payload,
-            Acc1 = <<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C), (MD bxor D)>>,
-            unmask(Rest, Masking, Acc1)
+
+%%
+%% Websockets internal functions for RFC6455 and hybi draft
+%%
+parse_frames(hybi, Frames, Socket) ->
+    try parse_hybi_frames(Socket, Frames, []) of
+        Parsed ->
+            io:format("L84 ~n",[]), 
+            process_frames(Parsed, [])
+    catch
+        _:_ -> error
     end.
 
+process_frames([], Acc) ->
+    lists:reverse(Acc);
+process_frames([{Opcode, Payload} | Rest], Acc) ->
+    case Opcode of
+        8 -> close;
+        _ ->
+            process_frames(Rest, [Payload | Acc])
+    end.
+
+parse_hybi_frames(_, <<>>, Acc) ->
+    lists:reverse(Acc);
+parse_hybi_frames(S, <<_Fin:1,
+                      _Rsv:3,
+                      Opcode:4,
+                      _Mask:1,
+                      PayloadLen:7,
+                      MaskKey:4/binary,
+                      Payload:PayloadLen/binary-unit:8,
+                      Rest/binary>>,
+                  Acc) when PayloadLen < 126 ->
+    Payload2 = hybi_unmask(Payload, MaskKey, <<>>),
+    parse_hybi_frames(S, Rest, [{Opcode, Payload2} | Acc]);
+parse_hybi_frames(S, <<_Fin:1,
+                      _Rsv:3,
+                      Opcode:4,
+                      _Mask:1,
+                      126:7,
+                      PayloadLen:16,
+                      MaskKey:4/binary,
+                      Payload:PayloadLen/binary-unit:8,
+                      Rest/binary>>,
+                  Acc) ->
+    Payload2 = hybi_unmask(Payload, MaskKey, <<>>),
+    parse_hybi_frames(S, Rest, [{Opcode, Payload2} | Acc]);
+parse_hybi_frames(Socket, <<_Fin:1,
+                           _Rsv:3,
+                           _Opcode:4,
+                           _Mask:1,
+                           126:7,
+                           _PayloadLen:16,
+                           _MaskKey:4/binary,
+                           _/binary-unit:8>> = PartFrame,
+                  Acc) ->
+    io:format("L113",[]),
+    ok = inet:setopts(Socket, [{packet, 0}, {active, once}]),
+    receive
+        {tcp_closed, _} ->
+            gen_tcp:close(Socket),
+            exit(normal);
+        {ssl_closed, _} ->
+            gen_tcp:close(Socket),
+            exit(normal);
+        {tcp_error, _, _} ->
+            gen_tcp:close(Socket),
+            exit(normal);
+        {tcp, _, Continuation} ->
+            parse_hybi_frames(Socket, <<PartFrame/binary, Continuation/binary>>,
+                              Acc);
+        _ ->
+            gen_tcp:close(Socket),
+            exit(normal)
+    after
+        5000 ->
+            gen_tcp:close(Socket),
+            exit(normal)
+    end;
+parse_hybi_frames(S, <<_Fin:1,
+                      _Rsv:3,
+                      Opcode:4,
+                      _Mask:1,
+                      127:7,
+                      0:1,
+                      PayloadLen:63,
+                      MaskKey:4/binary,
+                      Payload:PayloadLen/binary-unit:8,
+                      Rest/binary>>,
+                  Acc) ->
+    Payload2 = hybi_unmask(Payload, MaskKey, <<>>),
+    parse_hybi_frames(S, Rest, [{Opcode, Payload2} | Acc]).
+
+%% Unmasks RFC 6455 message
+hybi_unmask(<<O:32, Rest/bits>>, MaskKey, Acc) ->
+    <<MaskKey2:32>> = MaskKey,
+    hybi_unmask(Rest, MaskKey, <<Acc/binary, (O bxor MaskKey2):32>>);
+hybi_unmask(<<O:24>>, MaskKey, Acc) ->
+    <<MaskKey2:24, _:8>> = MaskKey,
+    <<Acc/binary, (O bxor MaskKey2):24>>;
+hybi_unmask(<<O:16>>, MaskKey, Acc) ->
+    <<MaskKey2:16, _:16>> = MaskKey,
+    <<Acc/binary, (O bxor MaskKey2):16>>;
+hybi_unmask(<<O:8>>, MaskKey, Acc) ->
+    <<MaskKey2:8, _:24>> = MaskKey,
+    <<Acc/binary, (O bxor MaskKey2):8>>;
+hybi_unmask(<<>>, _MaskKey, Acc) ->
+    Acc.
+
 handle_data(Data, Socket) ->
-    <<Eof:1, _Rsv:3, _Opcode:4, Mask:1, Len:7, Rest/binary>> = Data,
-    io:format("_FIN: ~p~n",[Eof]),
-    io:format("_LEN: ~p~n",[Len]),
-    io:format("_MASK: ~p~n",[Mask]),
-    case Eof of
-        ?END ->
-            if
-                Len < 126 ->
-                    <<Masking:4/binary, Payload:Len/binary, Next/binary>> = Rest,
-                    Line = unmask(Payload, Masking),
-                    case unicode:characters_to_binary(Line) of
-                        {incomplete, _, _} ->
-                            gen_tcp:close(Socket);
-                        Str ->
-                            io:format("ws line 83 String is : ~p~n",[Str]),
-                            userservice ! {self(),Socket,{message,Str}},
-                            case size(Next) of
-                                0 -> loop(Socket);
-                                _Other -> handle_data(Next, Socket)
-                            end
-                    end;
-                Len == 126 ->
-                    <<ExtLen:16,ExtRest/binary>> = Rest,
-                    <<Masking:4/binary, Payload:ExtLen/binary, Next/binary>> = ExtRest,
-                    io:format("ExtLen: ~p~n",[ExtLen]),
-                    Line = unmask(Payload, Masking),
-                    case unicode:characters_to_binary(Line) of
-                        {incomplete, _, _} ->
-                            gen_tcp:close(Socket);
-                        Str ->
-                            io:format("ws line 83 String is : ~p~n",[Str]),
-                            userservice ! {self(),Socket,{message,Str}},
-                            case size(Next) of
-                                0 -> loop(Socket);
-                                _Other -> handle_data(Next, Socket)
-                            end
-                    end;
-                Len == 127 ->
-                    <<ExtLen:64,ExtRest/binary>> = Rest,
-                    <<Masking:4/binary, Payload:ExtLen/binary, Next/binary>> = ExtRest,
-                    io:format("ExtLen: ~p~n",[ExtLen]),
-                    Line = unmask(Payload, Masking),
-                    case unicode:characters_to_binary(Line) of
-                        {incomplete, _, _} ->
-                            gen_tcp:close(Socket);
-                        Str ->
-                            io:format("ws line 83 String is : ~p~n",[Str]),
-                            userservice ! {self(),Socket,{message,Str}},
-                            case size(Next) of
-                                0 -> loop(Socket);
-                                _Other -> handle_data(Next, Socket)
-                            end
-                    end
-            end;
-        ?CONTINUE ->
-            io:format("maycontinue")
+    case parse_frames(hybi, Data, Socket) of
+        close ->
+            gen_tcp:close(Socket),
+            exit(normal);
+        error ->
+            io:format("L120 close~n"),
+            gen_tcp:close(Socket),
+            exit(normal);
+        Payload ->
+            [Line] = Payload,
+            case unicode:characters_to_binary(Line) of
+                {incomplete,_,_} ->
+                    io:format("L127 close~n"),
+                    gen_tcp:close(Socket),
+                    exit(normal);
+                Str ->
+                    io:format("ws line 83 String is : ~p~n",[Str]),
+                    userservice ! {self(),Socket,{message,Str}},
+                    loop(Socket)
+            end
     end.
 
 payload_length(N) ->
