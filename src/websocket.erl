@@ -59,6 +59,7 @@ loop(Socket) ->
 %% Websockets internal functions for RFC6455 and hybi draft
 %%
 parse_frames(hybi, Frames, Socket) ->
+    io:format("~p~n",[Frames]),
     try parse_hybi_frames(Socket, Frames, []) of
         Parsed ->
             io:format("L84 ~n",[]), 
@@ -77,6 +78,7 @@ process_frames([{Opcode, Payload} | Rest], Acc) ->
     end.
 
 parse_hybi_frames(_, <<>>, Acc) ->
+    io:format("hybi1~n",[]),
     lists:reverse(Acc);
 parse_hybi_frames(S, <<_Fin:1,
                       _Rsv:3,
@@ -87,6 +89,7 @@ parse_hybi_frames(S, <<_Fin:1,
                       Payload:PayloadLen/binary-unit:8,
                       Rest/binary>>,
                   Acc) when PayloadLen < 126 ->
+    io:format("hybi2~n",[]),
     Payload2 = hybi_unmask(Payload, MaskKey, <<>>),
     parse_hybi_frames(S, Rest, [{Opcode, Payload2} | Acc]);
 parse_hybi_frames(S, <<_Fin:1,
@@ -99,6 +102,7 @@ parse_hybi_frames(S, <<_Fin:1,
                       Payload:PayloadLen/binary-unit:8,
                       Rest/binary>>,
                   Acc) ->
+    io:format("hybi3~n",[]),
     Payload2 = hybi_unmask(Payload, MaskKey, <<>>),
     parse_hybi_frames(S, Rest, [{Opcode, Payload2} | Acc]);
 parse_hybi_frames(Socket, <<_Fin:1,
@@ -111,7 +115,7 @@ parse_hybi_frames(Socket, <<_Fin:1,
                            _/binary-unit:8>> = PartFrame,
                   Acc) ->
     io:format("L113",[]),
-    ok = inet:setopts(Socket, [{packet, 0}, {active, once}]),
+    ok = inet:setopts(Socket, [binary,{packet, 0}, {active, once}]),
     receive
         {tcp_closed, _} ->
             gen_tcp:close(Socket),
@@ -138,12 +142,12 @@ parse_hybi_frames(S, <<_Fin:1,
                       Opcode:4,
                       _Mask:1,
                       127:7,
-                      0:1,
-                      PayloadLen:63,
+                      PayloadLen:64,
                       MaskKey:4/binary,
                       Payload:PayloadLen/binary-unit:8,
                       Rest/binary>>,
                   Acc) ->
+    io:format("hybi5~n",[]),
     Payload2 = hybi_unmask(Payload, MaskKey, <<>>),
     parse_hybi_frames(S, Rest, [{Opcode, Payload2} | Acc]).
 
